@@ -17,7 +17,7 @@ export async function POST(req: Request) {
   if (!username.trim() || !password) return NextResponse.json({ error: 'Informe usuário e senha.' }, { status: 400 });
   try {
     const result = await login(username, password);
-    if ('error' in result) return NextResponse.json({ error: result.error }, { status: result.status });
+    if ('error' in result) return NextResponse.json({ error: result.error, payToken: result.payToken }, { status: result.status });
     const res = NextResponse.json({ ok: true, redirect: result.role === 'admin' ? '/admin' : '/' });
     res.cookies.set(SESSION_COOKIE, result.token, sessionCookieOptions);
     return res;

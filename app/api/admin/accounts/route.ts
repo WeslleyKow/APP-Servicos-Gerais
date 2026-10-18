@@ -1,5 +1,6 @@
 import { getAdminSession, sameOrigin } from '../../../../lib/auth';
 import { createAccount, InputError, listAccounts } from '../../../../lib/admin';
+import { mpConfigured } from '../../../../lib/payments';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -14,7 +15,7 @@ function fail(e: unknown) {
 export async function GET() {
   try {
     if (!(await getAdminSession())) return denied();
-    return Response.json({ accounts: await listAccounts() }, { headers: { 'Cache-Control': 'no-store' } });
+    return Response.json({ accounts: await listAccounts(), mercadopago: mpConfigured() }, { headers: { 'Cache-Control': 'no-store' } });
   } catch (e) {
     return fail(e);
   }

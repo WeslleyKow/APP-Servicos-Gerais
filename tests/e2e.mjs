@@ -1,5 +1,30 @@
 // Teste ponta a ponta: exige o site rodando (npm start) com DATABASE_URL configurada.
 import assert from 'node:assert/strict';
+import http from 'node:http';
+import { createHmac } from 'node:crypto';
+
+// Mercado Pago simulado (o site em teste aponta MERCADOPAGO_API_BASE para cá).
+const mpPayments = new Map();
+let mpSeq = 9000;
+const mpServer = http.createServer((req, res) => {
+  let raw = '';
+  req.on('data', (c) => (raw += c));
+  req.on('end', () => {
+    const send = (code, obj) => { res.writeHead(code, { 'content-type': 'application/json' }); res.end(JSON.stringify(obj)); };
+    if (req.headers.authorization !== 'Bearer TEST-token') return send(401, { message: 'unauthorized' });
+    if (req.method === 'POST' && req.url === '/v1/payments') {
+      const b = JSON.parse(raw);
+      const p = { id: ++mpSeq, status: 'pending', transaction_amount: b.transaction_amount, external_reference: b.external_reference,
+        point_of_interaction: { transaction_data: { qr_code: '00020126PIXTESTE' + mpSeq, qr_code_base64: 'iVBORw0KGgo=', ticket_url: 'https://mp.test/' + mpSeq } } };
+      mpPayments.set(String(p.id), p);
+      return send(201, p);
+    }
+    const m = req.url.match(/^\/v1\/payments\/(\w+)$/);
+    if (req.method === 'GET' && m && mpPayments.has(m[1])) return send(200, mpPayments.get(m[1]));
+    send(404, { message: 'not found' });
+  });
+});
+await new Promise((r) => mpServer.listen(4010, r));
 
 const base = process.env.BASE_URL || 'http://localhost:3000';
 const json = { 'Content-Type': 'application/json' };
@@ -152,4 +177,68 @@ r = await fetch(base + `/api/admin/accounts/${id}`, { method: 'DELETE', headers:
 assert.equal(r.status, 200);
 assert.equal(await getAcc(), undefined);
 
+// ---------- Pagamento automático (Pix Mercado Pago) ----------
+const pix = { ...novo, business_name: 'Loja Pix', username: 'lojapix', password: 'pix', monthly_fee: '15', billing_day: '10', start_date: '2026-01-05', next_due_date: '2020-01-10', auto_block_days: '1' };
+r = await post('/api/admin/accounts', pix, admin);
+assert.equal(r.status, 200);
+const pixId = (await r.json()).id;
+
+// Bloqueado por atraso: o login devolve um token para pagar ali mesmo.
+r = await loginAs('lojapix', 'pix');
+assert.equal(r.status, 403);
+const blocked = await r.json();
+assert.match(blocked.error, /Pix/);
+assert.ok(blocked.payToken, 'deveria vir payToken');
+r = await post('/api/assinatura/pix', { payToken: 'falso.1.x' });
+assert.equal(r.status, 401);
+r = await post('/api/assinatura/pix', { payToken: blocked.payToken });
+assert.equal(r.status, 200, 'gerar Pix');
+const { charge } = await r.json();
+assert.equal(charge.amount, 15);
+assert.match(charge.qr_code, /PIXTESTE/);
+r = await post('/api/assinatura/pix', { payToken: blocked.payToken });
+assert.equal((await r.json()).charge.id, charge.id, 'reaproveita o Pix pendente');
+const statusOf = async () => (await (await fetch(base + `/api/assinatura/pix?id=${charge.id}&payToken=${encodeURIComponent(blocked.payToken)}`)).json()).status;
+assert.equal(await statusOf(), 'pending');
+
+// Webhook com assinatura errada é recusado.
+const providerId = [...mpPayments.values()].find((p) => p.external_reference === charge.id).id;
+mpPayments.get(String(providerId)).status = 'approved';
+const hook = (sig) => fetch(base + `/api/pagamentos/webhook?data.id=${providerId}&type=payment`, { method: 'POST', headers: { ...json, 'x-signature': sig, 'x-request-id': 'req-1' }, body: JSON.stringify({ type: 'payment', data: { id: String(providerId) } }) });
+r = await hook('ts=1,v1=errado');
+assert.equal(r.status, 401);
+const ts = String(Date.now());
+const v1 = createHmac('sha256', 'segredo-teste').update(`id:${providerId};request-id:req-1;ts:${ts};`).digest('hex');
+r = await hook(`ts=${ts},v1=${v1}`);
+assert.equal(r.status, 200, 'webhook válido');
+assert.equal((await r.json()).status, 'paid');
+r = await hook(`ts=${ts},v1=${v1}`);
+assert.equal(r.status, 200, 'webhook repetido não duplica');
+assert.equal(await statusOf(), 'paid');
+
+// Liberado na hora: vencimento avançou, pagamento no histórico (uma vez só), login funciona.
+const accPix = (await (await fetch(base + '/api/admin/accounts', { headers: { cookie: admin } })).json()).accounts.find((a) => a.id === pixId);
+assert.ok(accPix.next_due_date > new Date().toISOString().slice(0, 10), 'vencimento no futuro');
+assert.equal(accPix.total_paid, 15);
+r = await fetch(base + `/api/admin/accounts/${pixId}`, { headers: { cookie: admin } });
+const pays = (await r.json()).payments;
+assert.equal(pays.length, 1);
+assert.equal(pays[0].method, 'Pix (Mercado Pago)');
+r = await loginAs('lojapix', 'pix');
+assert.equal(r.status, 200, 'login liberado após pagar');
+
+// Pagamento conferido sem webhook (consulta ativa pela tela do QR).
+const pixCookie = cookieOf(r);
+await post(`/api/admin/accounts/${pixId}`, { action: 'update', ...pix, next_due_date: '2026-10-19', auto_block_days: '' }, admin, 'PATCH');
+r = await post('/api/assinatura/pix', {}, pixCookie);
+assert.equal(r.status, 200);
+const charge2 = (await r.json()).charge;
+const prov2 = [...mpPayments.values()].find((p) => p.external_reference === charge2.id);
+prov2.status = 'approved';
+r = await fetch(base + `/api/assinatura/pix?id=${charge2.id}`, { headers: { cookie: pixCookie } });
+assert.equal((await r.json()).status, 'paid');
+r = await fetch(base + '/api/assinatura', { headers: { cookie: pixCookie } });
+assert.equal((await r.json()).nextDue, '2026-11-10');
+
+mpServer.close();
 console.log('e2e ok');

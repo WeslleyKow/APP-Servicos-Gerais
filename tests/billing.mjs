@@ -38,4 +38,11 @@ assert.equal(b.isDate('2028-02-29'), true);
 assert.equal(b.isDate('18/10/2026'), false);
 assert.equal(b.todaySP(new Date('2026-10-18T02:00:00Z')), '2026-10-17');
 
+// Pagamento automático: cobre o período e tira do atraso.
+assert.equal(b.nextDueAfterPayment('2026-10-10', 10, '2026-10-18'), '2026-11-10');
+assert.equal(b.nextDueAfterPayment('2026-11-10', 10, '2026-10-18'), '2026-12-10');
+assert.equal(b.nextDueAfterPayment('2026-07-10', 10, '2026-10-18'), '2026-11-10');
+assert.equal(b.nextDueAfterPayment('2026-07-18', 18, '2026-10-18'), '2026-11-18');
+assert.equal(b.nextDueAfterPayment(null, null, '2026-10-18'), '2026-11-18');
+
 console.log('Assinatura: vencimentos, situação e bloqueio automático passaram.');

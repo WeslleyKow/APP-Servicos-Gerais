@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import { Pool, types } from 'pg';
 import { hashPassword } from './password';
 
@@ -87,6 +87,22 @@ create table if not exists account_payments (
 );
 create index if not exists account_payments_account_idx on account_payments(account_id, paid_at desc);
 create table if not exists app_meta (key text primary key, value text not null default '');
+alter table account_payments add column if not exists external_id text;
+create unique index if not exists account_payments_external_idx on account_payments(external_id) where external_id is not null;
+create table if not exists billing_charges (
+  id text primary key,
+  account_id text not null references accounts(id) on delete cascade,
+  provider_id text unique,
+  amount numeric(10,2) not null,
+  status text not null default 'pending',
+  qr_code text not null default '',
+  qr_base64 text not null default '',
+  ticket_url text not null default '',
+  expires_at timestamptz not null,
+  created_at timestamptz not null default now(),
+  paid_at timestamptz
+);
+create index if not exists billing_charges_account_idx on billing_charges(account_id, created_at desc);
 `;
 
 /** Contas de teste criadas automaticamente na primeira execução. */
@@ -100,6 +116,7 @@ async function migrate() {
     await client.query('begin');
     await client.query('select pg_advisory_xact_lock(724002)');
     await client.query(SCHEMA);
+    await client.query("insert into app_meta (key, value) values ('app_secret', $1) on conflict (key) do nothing", [randomBytes(32).toString('hex')]);
     // Conta de teste: criada uma única vez (se for removida pelo administrador, não volta).
     const seeded = await client.query("insert into app_meta (key, value) values ('seed_test_accounts', '1') on conflict (key) do nothing returning key");
     for (const a of seeded.rowCount ? TEST_ACCOUNTS : []) {
@@ -142,6 +159,17 @@ export function ready(): Promise<void> {
     });
   }
   return g.__painelReady;
+}
+
+let appSecret: string | undefined;
+/** Segredo interno do sistema (gerado uma vez e guardado no banco). */
+export async function getAppSecret(): Promise<string> {
+  if (!appSecret) {
+    await ready();
+    const r = await pool().query<{ value: string }>("select value from app_meta where key = 'app_secret'");
+    appSecret = r.rows[0].value;
+  }
+  return appSecret;
 }
 
 export async function query<T extends Record<string, unknown> = Record<string, unknown>>(text: string, params: unknown[] = []) {

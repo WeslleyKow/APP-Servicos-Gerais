@@ -58,3 +58,14 @@ export function accessAllowed(a: Billing, today = todaySP()): boolean {
   if (a.auto_block_days == null || !a.next_due_date) return true;
   return daysBetween(a.next_due_date, today) <= a.auto_block_days;
 }
+
+/** Próximo vencimento após um pagamento automático: cobre o período atual e nunca deixa o cliente ainda em atraso. */
+export function nextDueAfterPayment(nextDue: string | null, billingDay: number | null, today = todaySP()): string {
+  let next = addMonth(nextDue || today, billingDay);
+  if (next <= today) {
+    const [y, m, d] = today.split('-').map(Number);
+    const tomorrow = new Date(Date.UTC(y, m - 1, d + 1)).toISOString().slice(0, 10);
+    next = firstDue(tomorrow, billingDay || d);
+  }
+  return next;
+}

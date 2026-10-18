@@ -37,6 +37,9 @@ jobs:
       - name: Teste ponta a ponta (login e dados)
         env:
           INSECURE_COOKIES: '1'
+          MERCADOPAGO_API_BASE: http://localhost:4010
+          MERCADOPAGO_ACCESS_TOKEN: TEST-token
+          MERCADOPAGO_WEBHOOK_SECRET: segredo-teste
         run: |
           npm start -- -p 3000 > server.log 2>&1 &
           for i in $(seq 1 60); do curl -s -o /dev/null http://localhost:3000/login && break; sleep 1; done

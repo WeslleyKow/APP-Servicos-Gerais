@@ -52,11 +52,13 @@ export default function AdminPanel({ name }: { name: string }) {
   const [toast, setToast] = useState('');
   const [openId, setOpenId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
+  const [mp, setMp] = useState<boolean | null>(null);
 
   const load = useCallback(async () => {
     try {
-      const r = await requestJSON<{ accounts: Account[] }>('/api/admin/accounts');
+      const r = await requestJSON<{ accounts: Account[]; mercadopago: boolean }>('/api/admin/accounts');
       setAccounts(r.accounts);
+      setMp(r.mercadopago);
       setError('');
     } catch (e) {
       if ((e as { status?: number }).status === 401) { window.location.href = '/login'; return; }
@@ -177,6 +179,7 @@ export default function AdminPanel({ name }: { name: string }) {
               ))}
               {!charges.length && <div className="empty"><Check size={30} /><h3>Tudo em dia</h3><p>Nenhuma mensalidade atrasada ou vencendo nos próximos 7 dias.</p></div>}
               <p className="footnote">Hoje: {dateBR(today)}. O WhatsApp abre com uma mensagem de lembrete pronta; você revisa e envia.</p>
+              <p className="footnote">Pagamento automático (Pix Mercado Pago): <b>{mp ? 'conectado — os clientes pagam pelo painel e a baixa é automática' : 'não configurado — falta colocar as chaves na Vercel'}</b>.</p>
             </section>
           ) : (
             <section className="panel settings"><h3>Trocar senha</h3><ChangePassword admin onDone={() => notify('Senha alterada')} /></section>
