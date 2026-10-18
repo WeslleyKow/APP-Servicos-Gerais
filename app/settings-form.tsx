@@ -1,17 +1,24 @@
 'use client';
-import { useState } from 'react';
-import { Check, Moon, Sun, RotateCcw } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { Check, Moon, Sun, RotateCcw, Copy, Gift } from 'lucide-react';
 import { DEFAULT_HOME, DEFAULT_THEME, normalizeTheme, PALETTES, themeVars, widgetOn, WIDGETS, type ThemeSettings } from '../lib/theme';
 
 type Item = Record<string, any>;
 
 export const HIDEABLE_TABS = ['Agenda', 'Clientes', 'Serviços', 'Pacotes', 'Notinhas', 'Financeiro', 'Atendimento'];
 
-export default function SettingsForm({ settings, business, segment, owner, saving, onSave, onPreview, onError }: {
+export default function SettingsForm({ settings, business, segment, owner, saving, onSave, onPreview, onError, referralCode }: {
+  referralCode?: string | null;
   settings: Item; business: string; segment: string; owner: string; saving: boolean;
   onSave: (settings: Item) => Promise<boolean>; onPreview: (theme: ThemeSettings | null) => void; onError: (msg: string) => void;
 }) {
   const [theme, setTheme] = useState<ThemeSettings>(normalizeTheme(settings.theme));
+  const [referral, setReferral] = useState('');
+  const [copied, setCopied] = useState(false);
+  useEffect(() => {
+    if (!referralCode) return;
+    fetch('/api/cadastro').then((r) => r.json()).then((r) => { if (r.enabled) setReferral(window.location.origin + '/cadastro?indicacao=' + referralCode); }).catch(() => {});
+  }, [referralCode]);
   const hidden: string[] = Array.isArray(settings.hiddenTabs) ? settings.hiddenTabs : [];
 
   function change(patch: Partial<ThemeSettings>) {
@@ -110,6 +117,19 @@ export default function SettingsForm({ settings, business, segment, owner, savin
           <label key={t}><input type="checkbox" name="tabs" value={t} defaultChecked={!hidden.includes(t)} />{t}</label>
         ))}
       </div>
+
+      {referral && (
+        <>
+          <hr />
+          <h3><Gift size={16} /> Indique o Painel Geral</h3>
+          <p className="footnote">Gostou do painel? Envie seu link para outros profissionais. Quem se cadastrar por ele aparece como indicado por você.</p>
+          <div className="link-box">
+            <input readOnly value={referral} onFocus={(e) => e.currentTarget.select()} />
+            <button type="button" className="small" onClick={async () => { try { await navigator.clipboard.writeText(referral); setCopied(true); setTimeout(() => setCopied(false), 2000); } catch { /* sem permissão */ } }}><Copy size={13} />{copied ? 'Copiado' : 'Copiar'}</button>
+            <a className="small" href={'https://wa.me/?text=' + encodeURIComponent('Eu uso o Painel Geral para organizar minha agenda, clientes e financeiro. Recomendo! Crie sua conta: ' + referral)} target="_blank" rel="noopener noreferrer">Enviar no WhatsApp</a>
+          </div>
+        </>
+      )}
 
       <div className="settings-actions">
         <button type="button" className="small" onClick={() => { const t = normalizeTheme(settings.theme); setTheme(t); onPreview(null); }}>Descartar cores</button>

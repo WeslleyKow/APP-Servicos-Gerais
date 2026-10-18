@@ -306,5 +306,58 @@ assert.equal((await fetch(base + `/api/agendar/nathaly-manicure?date=${tomorrow}
 page = await (await fetch(base + '/agendar/nathaly-manicure')).text();
 assert.match(page, /Agenda indisponível/);
 
+// ---------- Cadastro pelo site (autocadastro com Pix) ----------
+r = await fetch(base + '/api/cadastro');
+assert.equal((await r.json()).enabled, false, 'cadastro começa fechado');
+const signup = { business_name: 'Studio Novo', segment: 'Estética', owner_name: 'Carla', contact_phone: '(21) 99999-1234', contact_email: 'carla@exemplo.com', username: 'studionovo', password: 'segredo1', ref: 'nathaly-manicure' };
+r = await post('/api/cadastro', signup);
+assert.equal(r.status, 400, 'fechado recusa');
+r = await post('/api/admin/cadastro', { enabled: true, price: 0 }, admin, 'PUT');
+assert.equal(r.status, 400, 'abrir sem valor não pode');
+r = await post('/api/admin/cadastro', { enabled: true, price: '19.90', plan: 'Mensal', autoBlockDays: '5', headline: 'Teste' }, nat, 'PUT');
+assert.equal(r.status, 401, 'cliente não mexe na configuração');
+r = await post('/api/admin/cadastro', { enabled: true, price: '19.90', plan: 'Mensal', autoBlockDays: '5', headline: 'Teste' }, admin, 'PUT');
+assert.equal(r.status, 200);
+r = await fetch(base + '/api/cadastro?ref=nathaly-manicure');
+let info = await r.json();
+assert.equal(info.enabled, true);
+assert.equal(info.price, 19.9);
+assert.equal(info.referrer, 'Nathaly Manicure');
+r = await fetch(base + '/cadastro?indicacao=nathaly-manicure');
+assert.match(await r.text(), /Indicado por/);
+
+assert.equal((await post('/api/cadastro', { ...signup, password: '123' })).status, 400, 'senha curta');
+assert.equal((await post('/api/cadastro', { ...signup, website: 'x' })).status, 400, 'robô');
+assert.equal((await post('/api/cadastro', { ...signup, username: 'nathaly' })).status, 400, 'usuário em uso');
+r = await post('/api/cadastro', signup);
+assert.equal(r.status, 200, 'autocadastro');
+const created = await r.json();
+assert.ok(created.payToken);
+
+// Sem pagar não entra; o login devolve o Pix de novo.
+r = await loginAs('studionovo', 'segredo1');
+assert.equal(r.status, 403);
+const pend = await r.json();
+assert.match(pend.error, /pagamento/);
+assert.ok(pend.payToken);
+r = await post('/api/assinatura/pix', { payToken: created.payToken });
+assert.equal(r.status, 200);
+const sCharge = (await r.json()).charge;
+assert.equal(sCharge.amount, 19.9);
+[...mpPayments.values()].find((p) => p.external_reference === sCharge.id).status = 'approved';
+r = await fetch(base + `/api/assinatura/pix?id=${sCharge.id}&payToken=${encodeURIComponent(created.payToken)}`);
+assert.equal((await r.json()).status, 'paid');
+
+// Pagou: acesso liberado, vencimento no próximo mês, origem e indicação registradas.
+r = await loginAs('studionovo', 'segredo1');
+assert.equal(r.status, 200, 'entra depois de pagar');
+const studio = (await (await fetch(base + '/api/admin/accounts', { headers: { cookie: admin } })).json()).accounts.find((a) => a.username === 'studionovo');
+assert.equal(studio.status, 'ativo');
+assert.equal(studio.signup_source, 'site');
+assert.equal(studio.referred_by_name, 'Nathaly Manicure');
+assert.equal(studio.total_paid, 19.9);
+assert.equal(studio.monthly_fee, 19.9);
+assert.ok(studio.next_due_date > spDate(20), 'próximo vencimento ~1 mês');
+
 mpServer.close();
 console.log('e2e ok');

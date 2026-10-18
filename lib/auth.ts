@@ -67,6 +67,12 @@ export async function login(username: string, password: string): Promise<LoginRe
   if (user.role === 'client') {
     if (!user.status) return { error: 'Conta não encontrada.', status: 403 };
     if (!accessAllowed({ status: user.status, next_due_date: user.next_due_date, auto_block_days: user.auto_block_days })) {
+      if (user.status === 'pendente') {
+        if (user.account_id && mpConfigured() && user.monthly_fee) {
+          return { error: 'Falta só o pagamento para liberar seu acesso. Pague com Pix e entre na hora.', status: 403, payToken: await signPayToken(user.account_id) };
+        }
+        return { error: 'Seu cadastro está aguardando liberação. Em breve entraremos em contato.', status: 403 };
+      }
       if (user.status === 'ativo' && user.account_id && mpConfigured() && user.monthly_fee) {
         // Bloqueado só por atraso: pode pagar com Pix ali mesmo e entrar em seguida.
         return { error: 'Seu acesso está bloqueado por atraso no pagamento. Pague a mensalidade com Pix para liberar na hora.', status: 403, payToken: await signPayToken(user.account_id) };

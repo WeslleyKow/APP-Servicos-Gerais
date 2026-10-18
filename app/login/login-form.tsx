@@ -52,6 +52,7 @@ export default function LoginForm() {
             <label>Usuário<input name="username" autoComplete="username" autoCapitalize="none" spellCheck={false} required autoFocus /></label>
             <label>Senha<input name="password" type="password" autoComplete="current-password" required /></label>
             <button className="primary" disabled={busy}><LogIn size={17} />{busy ? 'Entrando…' : 'Entrar'}</button>
+            <p className="footnote signup-login">Ainda não tem conta? <a href="/cadastro">Criar minha conta</a></p>
           </>
         )}
       </form>

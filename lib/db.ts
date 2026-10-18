@@ -120,6 +120,8 @@ create table if not exists bookings (
   created_at timestamptz not null default now()
 );
 create index if not exists bookings_account_idx on bookings(account_id, status, date);
+alter table accounts add column if not exists signup_source text not null default 'admin';
+alter table accounts add column if not exists referred_by text;
 `;
 
 /** Contas de teste criadas automaticamente na primeira execução. */

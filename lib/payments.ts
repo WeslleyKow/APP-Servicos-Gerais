@@ -1,6 +1,6 @@
 import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
 import { getAppSecret, pool, query } from './db';
-import { nextDueAfterPayment, todaySP } from './billing';
+import { addMonth, nextDueAfterPayment, todaySP } from './billing';
 
 // Integração com o Mercado Pago (Pix). A confirmação vem pelo webhook e também é conferida
 // ativamente enquanto o cliente está na tela do QR Code — o pagamento nunca depende só do aviso.
@@ -84,7 +84,7 @@ async function accountForCharge(accountId: string): Promise<AccountBilling> {
   );
   const acc = r.rows[0];
   if (!acc) throw new PaymentError('Conta não encontrada.');
-  if (acc.status !== 'ativo') throw new PaymentError('Seu acesso foi suspenso pelo administrador. Entre em contato com o suporte.');
+  if (acc.status !== 'ativo' && acc.status !== 'pendente') throw new PaymentError('Seu acesso foi suspenso pelo administrador. Entre em contato com o suporte.');
   if (!acc.monthly_fee || acc.monthly_fee <= 0) throw new PaymentError('Sua mensalidade ainda não foi definida. Fale com o suporte.');
   return acc;
 }
@@ -150,17 +150,25 @@ export async function syncProviderPayment(providerId: string): Promise<string> {
     const upd = await client.query("update billing_charges set status = 'paid', paid_at = now() where id = $1 and status <> 'paid' returning id", [charge.id]);
     if (upd.rowCount) {
       const today = todaySP();
-      const acc = (await client.query<{ next_due_date: string | null; billing_day: number | null; last_payment_date: string | null }>(
-        'select next_due_date, billing_day, last_payment_date from accounts where id = $1 for update', [charge.account_id],
+      const acc = (await client.query<{ next_due_date: string | null; billing_day: number | null; last_payment_date: string | null; status: string }>(
+        'select next_due_date, billing_day, last_payment_date, status from accounts where id = $1 for update', [charge.account_id],
       )).rows[0];
       if (acc) {
         await client.query(
           "insert into account_payments (id, account_id, paid_at, amount, method, note, external_id) values ($1,$2,$3,$4,'Pix (Mercado Pago)','Pagamento automático',$5) on conflict do nothing",
           [randomUUID(), charge.account_id, today, payment.transaction_amount, 'mp:' + payment.id],
         );
-        await client.query('update accounts set next_due_date = $2, last_payment_date = greatest(coalesce(last_payment_date, $3::date), $3::date) where id = $1', [
-          charge.account_id, nextDueAfterPayment(acc.next_due_date, acc.billing_day, today), today,
-        ]);
+        if (acc.status === 'pendente') {
+          // Primeiro pagamento de quem se cadastrou pelo site: libera o acesso e define o dia de vencimento.
+          const day = acc.billing_day || Math.min(Number(today.slice(8, 10)), 28);
+          await client.query("update accounts set status = 'ativo', status_reason = '', billing_day = $2, start_date = coalesce(start_date, $3::date), next_due_date = $4, last_payment_date = $3::date where id = $1", [
+            charge.account_id, day, today, addMonth(today, day),
+          ]);
+        } else {
+          await client.query('update accounts set next_due_date = $2, last_payment_date = greatest(coalesce(last_payment_date, $3::date), $3::date) where id = $1', [
+            charge.account_id, nextDueAfterPayment(acc.next_due_date, acc.billing_day, today), today,
+          ]);
+        }
       }
     }
     await client.query('commit');

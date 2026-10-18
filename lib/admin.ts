@@ -9,7 +9,7 @@ export type AccountRow = {
   status: string; status_reason: string; plan: string; monthly_fee: number | null; billing_day: number | null;
   start_date: string | null; next_due_date: string | null; last_payment_date: string | null; auto_block_days: number | null;
   contact_phone: string; contact_email: string; notes: string;
-  username: string | null; last_login_at: string | null; total_paid: number;
+  username: string | null; last_login_at: string | null; total_paid: number; signup_source: string; referred_by_name: string | null;
 };
 
 export class InputError extends Error {}
@@ -39,7 +39,7 @@ export async function listAccounts(): Promise<AccountRow[]> {
     `select a.id, a.business_name, a.segment, a.owner_name, a.created_at, a.status, a.status_reason, a.plan, a.monthly_fee,
             a.billing_day, a.start_date, a.next_due_date, a.last_payment_date, a.auto_block_days,
             a.contact_phone, a.contact_email, a.notes,
-            u.username, u.last_login_at,
+            u.username, u.last_login_at, a.signup_source, (select r.business_name from accounts r where r.id = a.referred_by) as referred_by_name,
             coalesce((select sum(p.amount) from account_payments p where p.account_id = a.id), 0) as total_paid
        from accounts a
        left join lateral (select username, last_login_at from users where account_id = a.id and role = 'client' order by created_at limit 1) u on true
@@ -72,14 +72,18 @@ function parseProfile(b: Record<string, unknown>): ProfileInput {
   };
 }
 
-export async function createAccount(b: Record<string, unknown>): Promise<string> {
+export type CreateOptions = { status?: 'ativo' | 'pendente'; source?: string; referredBy?: string | null; minPassword?: number };
+
+export async function createAccount(b: Record<string, unknown>, opts: CreateOptions = {}): Promise<string> {
   const p = parseProfile(b);
   const username = normalizeUsername(text(b.username, 40));
   if (!USERNAME.test(username)) throw new InputError('O usuário deve ter de 3 a 40 caracteres: letras minúsculas, números, ponto, hífen ou sublinhado.');
   const password = typeof b.password === 'string' ? b.password : '';
   if (!password) throw new InputError('Informe a senha inicial do cliente.');
+  if (opts.minPassword && password.length < opts.minPassword) throw new InputError(`A senha precisa ter pelo menos ${opts.minPassword} caracteres.`);
+  const status = opts.status || 'ativo';
   if (!p.start_date) p.start_date = todaySP();
-  if (!p.next_due_date && p.monthly_fee) p.next_due_date = firstDue(p.start_date, p.billing_day);
+  if (status === 'ativo' && !p.next_due_date && p.monthly_fee) p.next_due_date = firstDue(p.start_date, p.billing_day);
   const id = randomUUID();
   const client = await pool().connect();
   try {
@@ -87,10 +91,10 @@ export async function createAccount(b: Record<string, unknown>): Promise<string>
     const taken = await client.query('select 1 from users where username = $1', [username]);
     if (taken.rowCount) throw new InputError('Esse usuário já está em uso. Escolha outro.');
     await client.query(
-      `insert into accounts (id, business_name, segment, owner_name, plan, monthly_fee, billing_day, start_date, next_due_date, auto_block_days, contact_phone, contact_email, notes, status, booking_slug)
-       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'ativo',
-               case when exists (select 1 from accounts where booking_slug = $14) then null else $14 end)`,
-      [id, p.business_name, p.segment, p.owner_name, p.plan, p.monthly_fee, p.billing_day, p.start_date, p.next_due_date, p.auto_block_days, p.contact_phone, p.contact_email, p.notes, username.replace(/[^a-z0-9-]/g, '-')],
+      `insert into accounts (id, business_name, segment, owner_name, plan, monthly_fee, billing_day, start_date, next_due_date, auto_block_days, contact_phone, contact_email, notes, status, booking_slug, signup_source, referred_by)
+       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$15,
+               case when exists (select 1 from accounts where booking_slug = $14) then null else $14 end, $16, $17)`,
+      [id, p.business_name, p.segment, p.owner_name, p.plan, p.monthly_fee, p.billing_day, p.start_date, p.next_due_date, p.auto_block_days, p.contact_phone, p.contact_email, p.notes, username.replace(/[^a-z0-9-]/g, '-'), status, opts.source || 'admin', opts.referredBy || null],
     );
     await client.query(
       'insert into users (id, account_id, username, password_hash, display_name, role, must_change_password) values ($1,$2,$3,$4,$5,$6,$7)',

@@ -1,7 +1,8 @@
 // Regras de assinatura e vencimento (sem dependências, testadas em tests/billing.mjs).
 
-export type AccountStatus = 'ativo' | 'suspenso' | 'bloqueado';
-export const STATUSES: AccountStatus[] = ['ativo', 'suspenso', 'bloqueado'];
+export type AccountStatus = 'ativo' | 'suspenso' | 'bloqueado' | 'pendente';
+export const STATUSES: AccountStatus[] = ['ativo', 'suspenso', 'bloqueado', 'pendente'];
+export const STATUS_LABELS: Record<string, string> = { ativo: 'Ativo', suspenso: 'Suspenso', bloqueado: 'Bloqueado', pendente: 'Aguardando 1º pagamento' };
 
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 export const isDate = (v: unknown): v is string => {
@@ -43,7 +44,7 @@ export type Billing = { status: string; next_due_date: string | null; auto_block
 
 /** Situação da cobrança para exibição. */
 export function billingState(a: Billing, today = todaySP()): { key: 'inativo' | 'sem' | 'atrasado' | 'vencendo' | 'emdia'; label: string; days: number } {
-  if (a.status !== 'ativo') return { key: 'inativo', label: a.status === 'suspenso' ? 'Suspenso' : 'Bloqueado', days: 0 };
+  if (a.status !== 'ativo') return { key: 'inativo', label: STATUS_LABELS[a.status] || 'Bloqueado', days: 0 };
   if (!a.next_due_date) return { key: 'sem', label: 'Sem cobrança', days: 0 };
   const diff = daysBetween(today, a.next_due_date);
   if (diff < 0) return { key: 'atrasado', label: `Atrasado ${-diff} ${diff === -1 ? 'dia' : 'dias'}`, days: -diff };

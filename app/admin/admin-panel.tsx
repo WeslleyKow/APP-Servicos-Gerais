@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Users, Receipt, KeyRound, Plus, Search, X, Check, ShieldCheck, ShieldOff, Ban, Trash2, MessageCircle,
-  ChevronRight, LogOut, AlertTriangle, CalendarClock, Wallet, UserCheck, LayoutDashboard,
+  ChevronRight, LogOut, AlertTriangle, CalendarClock, Wallet, UserCheck, LayoutDashboard, Globe, Copy, Hourglass,
 } from 'lucide-react';
 import { requestJSON } from '../../lib/request';
 import { themeVars } from '../../lib/theme';
@@ -14,6 +14,7 @@ type Account = {
   status: string; status_reason: string; plan: string; monthly_fee: number | null; billing_day: number | null;
   start_date: string | null; next_due_date: string | null; last_payment_date: string | null; auto_block_days: number | null;
   contact_phone: string; contact_email: string; notes: string; username: string | null; last_login_at: string | null; total_paid: number;
+  signup_source?: string; referred_by_name?: string | null;
 };
 type Payment = { id: string; paid_at: string; amount: number; method: string; note: string };
 
@@ -22,13 +23,14 @@ const dateBR = (d: string | null | undefined) => (d ? d.slice(0, 10).split('-').
 const dateTimeBR = (d: string | null | undefined) => (d ? new Date(d).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short', timeZone: 'America/Sao_Paulo' }) : 'Nunca');
 const json = { 'Content-Type': 'application/json' };
 const STATUS_LABEL: Record<string, string> = { ativo: 'Ativo', suspenso: 'Suspenso', bloqueado: 'Bloqueado' };
-const FILTERS = ['Todos', 'Ativos', 'Atrasados', 'Vencendo', 'Suspensos/Bloqueados'] as const;
+const FILTERS = ['Todos', 'Ativos', 'Atrasados', 'Vencendo', 'Aguardando pagamento', 'Suspensos/Bloqueados'] as const;
 
 function stateOf(a: Account) {
   return billingState({ status: a.status, next_due_date: a.next_due_date, auto_block_days: a.auto_block_days });
 }
 function badgeClass(a: Account) {
   const s = stateOf(a);
+  if (a.status === 'pendente') return 'badge warn';
   return 'badge ' + ({ inativo: 'danger', atrasado: 'danger', vencendo: 'warn', emdia: 'green', sem: 'muted' } as Record<string, string>)[s.key];
 }
 function whatsappLink(a: Account) {
@@ -45,7 +47,7 @@ function whatsappLink(a: Account) {
 export default function AdminPanel({ name }: { name: string }) {
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [loading, setLoading] = useState(true);
-  const [view, setView] = useState<'Clientes' | 'Cobranças' | 'Minha conta'>('Clientes');
+  const [view, setView] = useState<'Clientes' | 'Cobranças' | 'Cadastro pelo site' | 'Minha conta'>('Clientes');
   const [filter, setFilter] = useState<(typeof FILTERS)[number]>('Todos');
   const [query, setQuery] = useState('');
   const [error, setError] = useState('');
@@ -74,7 +76,8 @@ export default function AdminPanel({ name }: { name: string }) {
   const active = accounts.filter((a) => a.status === 'ativo');
   const overdue = active.filter((a) => stateOf(a).key === 'atrasado');
   const dueSoon = active.filter((a) => stateOf(a).key === 'vencendo');
-  const inactive = accounts.filter((a) => a.status !== 'ativo');
+  const inactive = accounts.filter((a) => a.status === 'suspenso' || a.status === 'bloqueado');
+  const pendingSignups = accounts.filter((a) => a.status === 'pendente');
   const monthly = active.reduce((s, a) => s + (Number(a.monthly_fee) || 0), 0);
   const overdueTotal = overdue.reduce((s, a) => s + (Number(a.monthly_fee) || 0), 0);
 
@@ -85,7 +88,8 @@ export default function AdminPanel({ name }: { name: string }) {
       if (filter === 'Ativos' && a.status !== 'ativo') return false;
       if (filter === 'Atrasados' && k !== 'atrasado') return false;
       if (filter === 'Vencendo' && k !== 'vencendo') return false;
-      if (filter === 'Suspensos/Bloqueados' && a.status === 'ativo') return false;
+      if (filter === 'Suspensos/Bloqueados' && a.status !== 'suspenso' && a.status !== 'bloqueado') return false;
+      if (filter === 'Aguardando pagamento' && a.status !== 'pendente') return false;
       return !q || [a.business_name, a.owner_name, a.username, a.segment, a.contact_phone, a.contact_email].join(' ').toLowerCase().includes(q);
     });
   }, [accounts, filter, query]);
@@ -93,7 +97,7 @@ export default function AdminPanel({ name }: { name: string }) {
   const charges = [...overdue, ...dueSoon].sort((a, b) => String(a.next_due_date).localeCompare(String(b.next_due_date)));
   const opened = accounts.find((a) => a.id === openId) || null;
 
-  const nav: [typeof view, typeof Users][] = [['Clientes', Users], ['Cobranças', Receipt], ['Minha conta', KeyRound]];
+  const nav: [typeof view, typeof Users][] = [['Clientes', Users], ['Cobranças', Receipt], ['Cadastro pelo site', Globe], ['Minha conta', KeyRound]];
 
   return (
     <div className="shell admin" style={themeVars({ palette: 'grafite', font: 'sans' })}>
@@ -103,7 +107,7 @@ export default function AdminPanel({ name }: { name: string }) {
         <nav>
           {nav.map(([n, Icon]) => (
             <button key={n} className={view === n ? 'selected' : ''} onClick={() => setView(n)}>
-              <Icon size={19} />{n}{n === 'Cobranças' && overdue.length > 0 && <span className="nav-count">{overdue.length}</span>}
+              <Icon size={19} />{n}{n === 'Cobranças' && overdue.length > 0 && <span className="nav-count">{overdue.length}</span>}{n === 'Cadastro pelo site' && pendingSignups.length > 0 && <span className="nav-count warn">{pendingSignups.length}</span>}
             </button>
           ))}
         </nav>
@@ -120,7 +124,7 @@ export default function AdminPanel({ name }: { name: string }) {
             <div>
               <p className="eyebrow">PAINEL DO ADMINISTRADOR</p>
               <h1>{view}</h1>
-              <p>{({ Clientes: 'Libere, acompanhe e controle o acesso de cada cliente.', Cobranças: 'Mensalidades atrasadas e vencendo nos próximos 7 dias.', 'Minha conta': 'Altere a senha de acesso da administração.' })[view]}</p>
+              <p>{({ Clientes: 'Libere, acompanhe e controle o acesso de cada cliente.', Cobranças: 'Mensalidades atrasadas e vencendo nos próximos 7 dias.', 'Cadastro pelo site': 'Deixe novos clientes criarem a conta e pagarem sozinhos.', 'Minha conta': 'Altere a senha de acesso da administração.' })[view]}</p>
             </div>
             {view === 'Clientes' && <button className="primary" onClick={() => setCreating(true)}><Plus size={18} />Novo cliente</button>}
           </div>
@@ -181,6 +185,8 @@ export default function AdminPanel({ name }: { name: string }) {
               <p className="footnote">Hoje: {dateBR(today)}. O WhatsApp abre com uma mensagem de lembrete pronta; você revisa e envia.</p>
               <p className="footnote">Pagamento automático (Pix Mercado Pago): <b>{mp ? 'conectado — os clientes pagam pelo painel e a baixa é automática' : 'não configurado — falta colocar as chaves na Vercel'}</b>.</p>
             </section>
+          ) : view === 'Cadastro pelo site' ? (
+            <SignupSettings pending={pendingSignups} onOpen={setOpenId} notify={notify} />
           ) : (
             <section className="panel settings"><h3>Trocar senha</h3><ChangePassword admin onDone={() => notify('Senha alterada')} /></section>
           )}
@@ -305,6 +311,8 @@ function AccountSheet({ account: a, onClose, onChanged, onDeleted }: { account: 
         <span>Vencimento: <b>{dateBR(a.next_due_date)}</b></span>
         <span>Total pago: <b>{money(a.total_paid)}</b></span>
         <span>Último acesso: <b>{dateTimeBR(a.last_login_at)}</b></span>
+        <span>Origem: <b>{a.signup_source === 'site' ? 'Cadastro pelo site' : 'Cadastrado por você'}</b></span>
+        {a.referred_by_name && <span>Indicado por: <b>{a.referred_by_name}</b></span>}
       </div>
       {a.status !== 'ativo' && a.status_reason && <p className="footnote">Motivo: {a.status_reason}</p>}
       <div className="segmented sheet-tabs">{(['Dados', 'Pagamentos', 'Acesso'] as const).map((t) => <button key={t} className={tab === t ? 'on' : ''} onClick={() => { setTab(t); setError(''); }}>{t}</button>)}</div>
@@ -378,5 +386,72 @@ function AccountSheet({ account: a, onClose, onChanged, onDeleted }: { account: 
         </>
       )}
     </Modal>
+  );
+}
+
+type SignupCfg = { enabled: boolean; price: number; plan: string; autoBlockDays: number | null; headline: string };
+
+function SignupSettings({ pending, onOpen, notify }: { pending: Account[]; onOpen: (id: string) => void; notify: (m: string) => void }) {
+  const [cfg, setCfg] = useState<SignupCfg | null>(null);
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [origin, setOrigin] = useState('');
+  useEffect(() => {
+    setOrigin(window.location.origin);
+    requestJSON<{ config: SignupCfg }>('/api/admin/cadastro').then((r) => setCfg(r.config)).catch((e) => setError((e as Error).message));
+  }, []);
+  const url = origin + '/cadastro';
+
+  async function submit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    const f = new FormData(e.currentTarget);
+    setBusy(true); setError('');
+    try {
+      const r = await requestJSON<{ config: SignupCfg }>('/api/admin/cadastro', {
+        method: 'PUT', headers: json,
+        body: JSON.stringify({ enabled: f.get('enabled') === 'on', price: f.get('price'), plan: f.get('plan'), autoBlockDays: f.get('autoBlockDays') === '' ? null : f.get('autoBlockDays'), headline: f.get('headline') }),
+      });
+      setCfg(r.config);
+      notify('Cadastro pelo site salvo');
+    } catch (err) { setError((err as Error).message); } finally { setBusy(false); }
+  }
+
+  if (!cfg) return <section className="panel">{error ? <p className="error">{error}</p> : <div className="empty">Carregando…</div>}</section>;
+  return (
+    <>
+      <form className="panel settings" onSubmit={submit}>
+        {error && <p className="error">{error}</p>}
+        <h3>Cadastro de novos clientes pelo site</h3>
+        <p className="footnote">Quem receber o link cria a própria conta e paga a primeira mensalidade por Pix. O acesso é liberado automaticamente quando o pagamento cai.</p>
+        <div className="checks"><label><input type="checkbox" name="enabled" defaultChecked={cfg.enabled} />Cadastro pelo site aberto</label></div>
+        <div className="form-grid">
+          <label>Mensalidade para novos clientes (R$)<input name="price" type="number" min="0" step="0.01" defaultValue={cfg.price || ''} placeholder="Ex.: 15,00" /></label>
+          <label>Nome do plano<input name="plan" defaultValue={cfg.plan} /></label>
+          <label>Bloquear após (dias de atraso)<input name="autoBlockDays" type="number" min="0" max="365" defaultValue={cfg.autoBlockDays ?? ''} placeholder="Vazio = nunca" /></label>
+        </div>
+        <label>Frase de destaque da página<input name="headline" defaultValue={cfg.headline} placeholder="Seu negócio organizado em um só lugar." /></label>
+        <p className="field-label">Link da página de cadastro</p>
+        <div className="link-box">
+          <input readOnly value={url} onFocus={(e) => e.currentTarget.select()} />
+          <button type="button" className="small" onClick={async () => { try { await navigator.clipboard.writeText(url); notify('Link copiado'); } catch { /* sem permissão */ } }}><Copy size={13} />Copiar</button>
+          <a className="small" href={url} target="_blank" rel="noopener noreferrer">Abrir</a>
+          <a className="small" href={'https://wa.me/?text=' + encodeURIComponent('Conheça o Painel Geral: agenda, clientes e financeiro do seu negócio num só lugar. Crie sua conta aqui: ' + url)} target="_blank" rel="noopener noreferrer"><MessageCircle size={13} />WhatsApp</a>
+        </div>
+        <p className="footnote">Seus clientes também ganham um link de indicação no painel deles (em Configurações). Quem se cadastrar por ele aparece aqui como &quot;Indicado por&quot;.</p>
+        <div className="settings-actions"><button className="primary" disabled={busy}>{busy ? 'Salvando…' : 'Salvar'}</button></div>
+      </form>
+      <section className="panel">
+        <div className="section-heading"><h3><Hourglass size={15} /> Aguardando o primeiro pagamento</h3><span className="badge warn">{pending.length}</span></div>
+        {pending.map((a) => (
+          <div className="appointment clickable" key={a.id} onClick={() => onOpen(a.id)}>
+            <div className="appointment-body"><b>{a.business_name}</b><p>{a.owner_name} · {a.contact_phone || 'sem telefone'} · criado em {dateTimeBR(a.created_at)}{a.referred_by_name ? ' · indicado por ' + a.referred_by_name : ''}</p></div>
+            {whatsappLink(a) && <a className="icon" title="Chamar no WhatsApp" href={'https://wa.me/' + (a.contact_phone.replace(/\D/g, '').length <= 11 ? '55' : '') + a.contact_phone.replace(/\D/g, '')} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}><MessageCircle size={18} /></a>}
+            <ChevronRight size={16} />
+          </div>
+        ))}
+        {!pending.length && <p className="footnote">Nenhum cadastro aguardando pagamento.</p>}
+        <p className="footnote">Quem não pagou não entra no painel. Ao tentar entrar, a pessoa vê o Pix de novo. Para liberar sem pagamento, abra a ficha → Acesso → Desbloquear / reativar.</p>
+      </section>
+    </>
   );
 }
