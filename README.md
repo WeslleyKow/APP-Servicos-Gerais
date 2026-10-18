@@ -1,29 +1,32 @@
-# Nathaly Manicure
+# Painel Geral
 
-Código-fonte da versão atual: agenda, clientes, serviços, pacotes, financeiro, notinhas com pagamentos parciais e seleção com busca.
+Painel para qualquer vendedor ou prestador de serviço: agenda, clientes, serviços, pacotes, notinhas (vendas fiado com pagamentos parciais) e financeiro. Cada cliente do painel entra com o próprio login e vê apenas os próprios dados, com o nome do negócio dele em todo o sistema.
 
-Não inclui dados cadastrados, banco de dados, credenciais ou dependências instaladas.
+## Hospedagem
+- **Site:** Vercel (cada envio para a branch `main` é publicado automaticamente).
+- **Banco:** Neon (PostgreSQL), ligado à Vercel pela variável `DATABASE_URL`.
+- As tabelas são criadas automaticamente no primeiro acesso.
 
-## Instalação
-Requer Node.js >=22.13 e pnpm.
+## Conta de teste
+| Usuário | Senha | Negócio |
+|---|---|---|
+| `nathaly` | `nathaly` | Nathaly Manicure |
+
+## Desenvolvimento
+Requer Node.js >= 22.13 e um PostgreSQL.
 
 ```sh
-pnpm install --frozen-lockfile
-pnpm exec tsc --noEmit
-node tests/notinha.mjs
-node tests/request.mjs
-pnpm run dev
+npm install
+DATABASE_URL=postgres://... npm run dev
+npm run typecheck && npm test
 ```
 
-Aplique as migrações da pasta drizzle ao D1 local antes de usar o sistema. Consulte DOCUMENTACAO-BASE.md para os comandos de migração e configuração do runtime.
-
-## Hospedagem e autenticação
-O código depende de Cloudflare Workers, D1 (binding DB) e autenticação do ChatGPT Sites. O identificador do Site foi removido desta cópia. Para outra hospedagem, configure seu próprio banco e substitua app/chatgpt-auth.ts por autenticação segura, protegendo as rotas da API também. Não é um HTML independente.
-
-A tabela workspace armazena o estado e sua versão; o arquivo de migração cria apenas a estrutura, sem registros. A API fica em app/api/state/route.ts.
-
-## WhatsApp
-Mensagens pré-preenchidas para envio manual. Automação de envios não está implementada.
+O GitHub Actions (`.github/workflows/ci.yml`) roda checagem de tipos, testes, build e um teste ponta a ponta de login e salvamento em cada envio.
 
 ## Código
-app: telas, autenticação e API. lib: cálculos e requisições. db/drizzle: estrutura e migrações. tests: testes. build/scripts: runtime e compilação.
+- `app/painel.tsx` — telas do painel.
+- `app/login/` — tela de login.
+- `app/api/` — login, logout e dados (`state`).
+- `lib/db.ts` — conexão, tabelas e contas de teste.
+- `lib/auth.ts`, `lib/password.ts` — sessões e senhas (scrypt).
+- `lib/notinha.ts` — cálculo de saldos e pagamentos.

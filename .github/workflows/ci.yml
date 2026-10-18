@@ -1,0 +1,48 @@
+name: Verificação
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  verificar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: painel
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_URL: postgres://postgres:postgres@localhost:5432/painel
+      NEXT_TELEMETRY_DISABLED: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Instalar dependências
+        run: npm install --no-audit --no-fund
+      - name: Checagem de tipos
+        run: npm run typecheck
+      - name: Testes unitários
+        run: npm test
+      - name: Build
+        run: npm run build
+      - name: Teste ponta a ponta (login e dados)
+        env:
+          INSECURE_COOKIES: '1'
+        run: |
+          npm start -- -p 3000 > server.log 2>&1 &
+          for i in $(seq 1 60); do curl -s -o /dev/null http://localhost:3000/login && break; sleep 1; done
+          npm run test:e2e || (cat server.log; exit 1)
+      - name: Guardar package-lock.json
+        uses: actions/upload-artifact@v4
+        with:
+          name: package-lock
+          path: package-lock.json
