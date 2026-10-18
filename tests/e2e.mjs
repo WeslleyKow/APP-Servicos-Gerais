@@ -240,5 +240,71 @@ assert.equal((await r.json()).status, 'paid');
 r = await fetch(base + '/api/assinatura', { headers: { cookie: pixCookie } });
 assert.equal((await r.json()).nextDue, '2026-11-10');
 
+// ---------- Link de agendamento online ----------
+const spDate = (offset) => { const d = new Date(Date.now() + offset * 86400000); return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(d); };
+const tomorrow = spDate(1);
+r = await fetch(base + '/api/state', { headers: { cookie: nat } });
+const natState = await r.json();
+const natData = { clients: [{ id: 'c-maria', name: 'Maria', phone: '(11) 98888-7777' }], services: [{ id: 's-mao', name: 'Manicure', price: 35, duration: 60, active: true }, { id: 's-oculto', name: 'Oculto', price: 10, duration: 30, active: true }],
+  packages: [], sales: [], appointments: [], entries: [], blocks: [],
+  settings: { business: 'Nathaly Manicure', start: '08:00', end: '12:00', days: ['0', '1', '2', '3', '4', '5', '6'], booking: { enabled: true, mode: 'auto', minNoticeHours: 0, maxDaysAhead: 30, step: 60, hiddenServices: ['s-oculto'], whatsapp: '11977776666' } } };
+r = await post('/api/state', { data: natData, version: natState.version }, nat, 'PUT');
+assert.equal(r.status, 200, 'salvar dados da nathaly');
+
+r = await fetch(base + '/agendar/nathaly');
+assert.equal(r.status, 200);
+let page = await r.text();
+assert.match(page, /Nathaly Manicure/);
+assert.match(page, /Manicure/);
+assert.doesNotMatch(page, /Oculto/, 'serviço escondido não aparece');
+r = await fetch(base + `/api/agendar/nathaly?date=${tomorrow}&service=s-mao`);
+assert.deepEqual((await r.json()).times, ['08:00', '09:00', '10:00', '11:00']);
+r = await fetch(base + `/api/agendar/nathaly?date=${tomorrow}&service=s-oculto`);
+assert.equal(r.status, 400, 'serviço escondido não agenda');
+
+const book = (body) => post('/api/agendar/nathaly', { serviceId: 's-mao', date: tomorrow, time: '10:00', name: 'Joana', phone: '(11) 97777-1111', ...body });
+assert.equal((await book({ website: 'spam' })).status, 400, 'robô barrado');
+assert.equal((await book({ phone: '123' })).status, 400, 'telefone inválido');
+r = await book({});
+assert.equal(r.status, 200, 'agendamento pelo link');
+assert.equal((await r.json()).booking.mode, 'auto');
+r = await book({ name: 'Outra', phone: '(11) 96666-2222' });
+assert.equal(r.status, 409, 'mesmo horário não pode ser pego duas vezes');
+r = await fetch(base + `/api/agendar/nathaly?date=${tomorrow}&service=s-mao`);
+assert.deepEqual((await r.json()).times, ['08:00', '09:00', '11:00']);
+// Corrida: dois pedidos simultâneos no mesmo horário → só um passa.
+const both = await Promise.all([book({ time: '08:00', phone: '(11) 95555-0001' }), book({ time: '08:00', phone: '(11) 95555-0002' })]);
+assert.deepEqual(both.map((x) => x.status).sort(), [200, 409]);
+
+// O painel recebe os novos agendamentos e confirma a importação.
+r = await fetch(base + '/api/agendamentos', { headers: { cookie: nat } });
+let inbox = await r.json();
+assert.equal(inbox.slug, 'nathaly');
+assert.equal(inbox.bookings.length, 2);
+r = await post('/api/agendamentos', { ack: inbox.bookings.map((b) => b.id) }, nat);
+assert.equal(r.status, 200);
+r = await fetch(base + '/api/agendamentos', { headers: { cookie: nat } });
+assert.equal((await r.json()).bookings.length, 0);
+r = await fetch(base + `/api/agendar/nathaly?date=${tomorrow}&service=s-mao`);
+assert.deepEqual((await r.json()).times, ['09:00', '11:00'], 'importados continuam ocupando o horário');
+
+// Trocar o endereço do link.
+r = await post('/api/agendamentos', { slug: 'Nathaly-Manicure' }, nat, 'PUT');
+assert.equal(r.status, 200);
+assert.equal((await r.json()).slug, 'nathaly-manicure');
+r = await post('/api/agendamentos', { slug: '-x' }, nat, 'PUT');
+assert.equal(r.status, 400);
+assert.equal((await fetch(base + `/api/agendar/nathaly?date=${tomorrow}&service=s-mao`)).status, 404);
+assert.equal((await fetch(base + `/api/agendar/nathaly-manicure?date=${tomorrow}&service=s-mao`)).status, 200);
+
+// Link desligado ou cliente suspenso: agenda indisponível.
+r = await fetch(base + '/api/state', { headers: { cookie: nat } });
+const st2 = await r.json();
+r = await post('/api/state', { data: { ...st2.data, settings: { ...st2.data.settings, booking: { ...st2.data.settings.booking, enabled: false } } }, version: st2.version }, nat, 'PUT');
+assert.equal(r.status, 200);
+assert.equal((await fetch(base + `/api/agendar/nathaly-manicure?date=${tomorrow}&service=s-mao`)).status, 410);
+page = await (await fetch(base + '/agendar/nathaly-manicure')).text();
+assert.match(page, /Agenda indisponível/);
+
 mpServer.close();
 console.log('e2e ok');

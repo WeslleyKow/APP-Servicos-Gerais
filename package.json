@@ -11,7 +11,7 @@
     "build": "next build",
     "start": "next start",
     "typecheck": "tsc --noEmit",
-    "test": "node tests/notinha.mjs && node tests/request.mjs && node tests/billing.mjs",
+    "test": "node tests/notinha.mjs && node tests/request.mjs && node tests/billing.mjs && node tests/booking.mjs",
     "test:e2e": "node tests/e2e.mjs"
   },
   "dependencies": {

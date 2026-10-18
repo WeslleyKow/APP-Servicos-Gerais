@@ -103,6 +103,25 @@ create table if not exists billing_charges (
   paid_at timestamptz
 );
 create index if not exists billing_charges_account_idx on billing_charges(account_id, created_at desc);
+alter table accounts add column if not exists booking_slug text;
+update accounts a set booking_slug = (select u.username from users u where u.account_id = a.id and u.role = 'client' order by u.created_at limit 1)
+ where booking_slug is null and not exists (select 1 from accounts b where b.booking_slug = (select u.username from users u where u.account_id = a.id and u.role = 'client' order by u.created_at limit 1));
+create unique index if not exists accounts_booking_slug_idx on accounts(booking_slug);
+create table if not exists bookings (
+  id text primary key,
+  account_id text not null references accounts(id) on delete cascade,
+  service_id text not null,
+  service_name text not null,
+  price numeric(10,2) not null default 0,
+  duration integer not null,
+  date date not null,
+  time text not null,
+  name text not null,
+  phone text not null,
+  status text not null default 'novo',
+  created_at timestamptz not null default now()
+);
+create index if not exists bookings_account_idx on bookings(account_id, status, date);
 `;
 
 /** Contas de teste criadas automaticamente na primeira execução. */

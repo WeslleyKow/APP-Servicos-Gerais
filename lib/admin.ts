@@ -87,9 +87,10 @@ export async function createAccount(b: Record<string, unknown>): Promise<string>
     const taken = await client.query('select 1 from users where username = $1', [username]);
     if (taken.rowCount) throw new InputError('Esse usuário já está em uso. Escolha outro.');
     await client.query(
-      `insert into accounts (id, business_name, segment, owner_name, plan, monthly_fee, billing_day, start_date, next_due_date, auto_block_days, contact_phone, contact_email, notes, status)
-       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'ativo')`,
-      [id, p.business_name, p.segment, p.owner_name, p.plan, p.monthly_fee, p.billing_day, p.start_date, p.next_due_date, p.auto_block_days, p.contact_phone, p.contact_email, p.notes],
+      `insert into accounts (id, business_name, segment, owner_name, plan, monthly_fee, billing_day, start_date, next_due_date, auto_block_days, contact_phone, contact_email, notes, status, booking_slug)
+       values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'ativo',
+               case when exists (select 1 from accounts where booking_slug = $14) then null else $14 end)`,
+      [id, p.business_name, p.segment, p.owner_name, p.plan, p.monthly_fee, p.billing_day, p.start_date, p.next_due_date, p.auto_block_days, p.contact_phone, p.contact_email, p.notes, username.replace(/[^a-z0-9-]/g, '-')],
     );
     await client.query(
       'insert into users (id, account_id, username, password_hash, display_name, role, must_change_password) values ($1,$2,$3,$4,$5,$6,$7)',
