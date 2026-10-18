@@ -1,0 +1,18 @@
+import ts from 'typescript';
+import fs from 'node:fs';
+import assert from 'node:assert/strict';
+const src=ts.transpileModule(fs.readFileSync('lib/notinha.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022}}).outputText;
+const {balance,receive,clientOf,receipts}=await import('data:text/javascript;base64,'+Buffer.from(src).toString('base64'));
+const entries=[{id:'new',date:'2026-10-11',amount:30,paid:false},{id:'old',date:'2026-10-01',amount:30,paid:false}];
+const partial=receive(entries,['new','old'],20,'2026-10-12','Pix','p1');
+assert.equal(balance(partial[1]),10);assert.equal(balance(partial[0]),30);assert.equal(entries[1].paid,false);
+const settled=receive(partial,['new','old'],40,'2026-10-13','Dinheiro','p2');
+assert.equal(settled.reduce((s,e)=>s+balance(e),0),0);assert.ok(settled.every(e=>e.paid));
+assert.equal(settled.flatMap(receipts).reduce((s,p)=>s+p.amount,0),60);
+assert.equal(settled.flatMap(receipts).filter(p=>p.date==='2026-10-13').reduce((s,p)=>s+p.amount,0),40);
+for(const amount of [0,-1,61,NaN])assert.throws(()=>receive(entries,['new','old'],amount,'2026-10-12','Pix','invalid'));
+assert.equal(balance({amount:20,paid:true}),0);assert.equal(receipts({amount:20,paid:true,date:'2026-10-01',method:'Pix'})[0].amount,20);
+assert.equal(clientOf({appointmentId:'a'},{appointments:[{id:'a',clientId:'c'}],sales:[]}), 'c');
+assert.equal(clientOf({saleId:'s'},{appointments:[],sales:[{id:'s',clientId:'c'}]}),'c');
+const tiny=receive([{id:'t',date:'2026-10-11',amount:.3,paid:false}],['t'],.1,'2026-10-12','Pix','p');assert.equal(balance(tiny[0]),.2);
+console.log('Notinha: pagamentos parciais, quitação, ordem dos débitos, centavos, histórico e compatibilidade passaram.');
