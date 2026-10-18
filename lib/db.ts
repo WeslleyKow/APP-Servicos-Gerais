@@ -104,8 +104,6 @@ create table if not exists billing_charges (
 );
 create index if not exists billing_charges_account_idx on billing_charges(account_id, created_at desc);
 alter table accounts add column if not exists booking_slug text;
-update accounts a set booking_slug = (select u.username from users u where u.account_id = a.id and u.role = 'client' order by u.created_at limit 1)
- where booking_slug is null and not exists (select 1 from accounts b where b.booking_slug = (select u.username from users u where u.account_id = a.id and u.role = 'client' order by u.created_at limit 1));
 create unique index if not exists accounts_booking_slug_idx on accounts(booking_slug);
 create table if not exists bookings (
   id text primary key,
@@ -151,6 +149,12 @@ async function migrate() {
         );
       }
     }
+    // Endereço padrão do link de agendamento = usuário de login (quando livre).
+    await client.query(`update accounts a set booking_slug = u.username
+                          from users u
+                         where u.account_id = a.id and u.role = 'client' and a.booking_slug is null
+                           and u.username ~ '^[a-z0-9][a-z0-9-]{1,38}[a-z0-9]$'
+                           and not exists (select 1 from accounts b where b.booking_slug = u.username)`);
     // Administrador inicial: admin / admin, com troca de senha obrigatória no primeiro acesso.
     const admin = await client.query("select 1 from users where role = 'admin' limit 1");
     if (!admin.rowCount) {
