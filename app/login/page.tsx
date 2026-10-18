@@ -8,6 +8,6 @@ export const metadata: Metadata = { title: 'Entrar | Painel Geral' };
 
 export default async function LoginPage() {
   const session = await getSession().catch(() => null);
-  if (session) redirect('/');
+  if (session) redirect(session.role === 'admin' ? '/admin' : '/');
   return <LoginForm />;
 }

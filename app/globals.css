@@ -18,3 +18,11 @@
 .sidebar{overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin;scrollbar-color:var(--border-strong) transparent}.sidebar-note,.profile{flex-shrink:0}
 @media(min-width:721px) and (max-height:860px){.sidebar{padding-top:24px}.brand{margin-bottom:28px}nav{gap:3px}nav button{padding:11px 14px}.sidebar-note{display:none}.profile{margin-top:auto;padding-top:16px}}
 @media(max-width:720px){.sidebar{overflow:visible}}
+.admin-stats{grid-template-columns:repeat(5,1fr)}.badge.danger{background:#f9e5e2;color:#a45551}.badge.warn{background:#fbf0d9;color:#97702a}.nav-count{margin-left:auto;background:#c0574f;color:#fff;border-radius:10px;font-size:10px;padding:2px 7px;font-weight:600}
+.toolbar .search{flex:1;min-width:240px;max-width:none;display:flex;align-items:center;gap:8px}.toolbar .segmented{flex-wrap:wrap}
+.admin-table td{vertical-align:top}.admin-table b{font-weight:600;color:var(--heading)}tr.clickable{cursor:pointer}tr.clickable:hover td{background:var(--primary-soft)}
+.modal.wide{width:760px}.form-section{margin:22px 0 14px!important;font-size:13px}.sheet-summary{display:flex;flex-wrap:wrap;gap:8px 18px;align-items:center;font-size:11px;color:var(--muted);margin:4px 0 16px}.sheet-summary b{color:var(--heading);font-weight:600}.sheet-tabs{display:inline-flex;margin:4px 0 8px}
+.access-actions{display:flex;flex-wrap:wrap;gap:8px;margin:6px 0 12px}.small{display:inline-flex;align-items:center;gap:6px}.small.current{background:var(--primary-soft);color:var(--primary-strong);border-color:var(--primary);opacity:1!important}.small.danger{color:#a45551;border-color:#edc6c2;background:#fdf3f2}.danger-text{color:#a45551!important}
+.login-ok{background:#e9efe4;color:#5f7353!important;border:1px solid #cfdbc4;border-radius:8px;padding:12px;font-size:12px}.login-exit{margin-top:14px;text-align:center}.login-exit .link{margin:auto;font-size:12px}.password-form{max-width:420px}.password-form .primary{margin-top:6px}
+.modal select{appearance:auto}
+@media(max-width:1150px){.admin-stats{grid-template-columns:repeat(3,1fr)}}@media(max-width:720px){.admin-stats{grid-template-columns:1fr 1fr}.modal.wide{width:100%}}

@@ -13,12 +13,12 @@ export default function LoginForm() {
     setBusy(true);
     setError('');
     try {
-      await requestJSON('/api/login', {
+      const r = await requestJSON<{ redirect?: string }>('/api/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username: String(f.get('username') || ''), password: String(f.get('password') || '') }),
       });
-      window.location.href = '/';
+      window.location.href = r.redirect || '/';
     } catch (err) {
       setError((err as Error).message);
       setBusy(false);

@@ -1,6 +1,10 @@
 import { randomUUID } from 'node:crypto';
-import { Pool } from 'pg';
+import { Pool, types } from 'pg';
 import { hashPassword } from './password';
+
+// Datas (date) como texto AAAA-MM-DD e valores (numeric) como número.
+types.setTypeParser(1082, (v: string) => v);
+types.setTypeParser(1700, (v: string) => Number(v));
 
 type Globals = { __painelPool?: Pool; __painelReady?: Promise<void> };
 const g = globalThis as typeof globalThis & Globals;
@@ -54,6 +58,35 @@ create table if not exists workspaces (
   data jsonb not null default '{}'::jsonb,
   version integer not null default 0
 );
+alter table users alter column account_id drop not null;
+alter table users add column if not exists role text not null default 'client';
+alter table users add column if not exists must_change_password boolean not null default false;
+alter table users add column if not exists last_login_at timestamptz;
+alter table users add column if not exists failed_attempts integer not null default 0;
+alter table users add column if not exists locked_until timestamptz;
+alter table accounts add column if not exists status text not null default 'ativo';
+alter table accounts add column if not exists status_reason text not null default '';
+alter table accounts add column if not exists plan text not null default '';
+alter table accounts add column if not exists monthly_fee numeric(10,2);
+alter table accounts add column if not exists billing_day integer;
+alter table accounts add column if not exists start_date date;
+alter table accounts add column if not exists next_due_date date;
+alter table accounts add column if not exists last_payment_date date;
+alter table accounts add column if not exists auto_block_days integer;
+alter table accounts add column if not exists contact_phone text not null default '';
+alter table accounts add column if not exists contact_email text not null default '';
+alter table accounts add column if not exists notes text not null default '';
+create table if not exists account_payments (
+  id text primary key,
+  account_id text not null references accounts(id) on delete cascade,
+  paid_at date not null,
+  amount numeric(10,2) not null,
+  method text not null default '',
+  note text not null default '',
+  created_at timestamptz not null default now()
+);
+create index if not exists account_payments_account_idx on account_payments(account_id, paid_at desc);
+create table if not exists app_meta (key text primary key, value text not null default '');
 `;
 
 /** Contas de teste criadas automaticamente na primeira execução. */
@@ -65,9 +98,11 @@ async function migrate() {
   const client = await pool().connect();
   try {
     await client.query('begin');
-    await client.query('select pg_advisory_xact_lock(724001)');
+    await client.query('select pg_advisory_xact_lock(724002)');
     await client.query(SCHEMA);
-    for (const a of TEST_ACCOUNTS) {
+    // Conta de teste: criada uma única vez (se for removida pelo administrador, não volta).
+    const seeded = await client.query("insert into app_meta (key, value) values ('seed_test_accounts', '1') on conflict (key) do nothing returning key");
+    for (const a of seeded.rowCount ? TEST_ACCOUNTS : []) {
       await client.query(
         'insert into accounts (id, business_name, segment, owner_name) values ($1,$2,$3,$4) on conflict (id) do nothing',
         [a.id, a.business, a.segment, a.owner],
@@ -79,6 +114,15 @@ async function migrate() {
           [randomUUID(), a.id, a.username, await hashPassword(a.password), a.owner],
         );
       }
+    }
+    // Administrador inicial: admin / admin, com troca de senha obrigatória no primeiro acesso.
+    const admin = await client.query("select 1 from users where role = 'admin' limit 1");
+    if (!admin.rowCount) {
+      const taken = await client.query("select 1 from users where username = 'admin'");
+      await client.query(
+        "insert into users (id, account_id, username, password_hash, display_name, role, must_change_password) values ($1, null, $2, $3, 'Administrador', 'admin', true)",
+        [randomUUID(), taken.rowCount ? 'admin-' + randomUUID().slice(0, 4) : 'admin', await hashPassword('admin')],
+      );
     }
     await client.query('commit');
   } catch (e) {

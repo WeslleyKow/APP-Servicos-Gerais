@@ -16,10 +16,10 @@ export async function POST(req: Request) {
   const password = typeof body.password === 'string' ? body.password : '';
   if (!username.trim() || !password) return NextResponse.json({ error: 'Informe usuário e senha.' }, { status: 400 });
   try {
-    const token = await login(username, password);
-    if (!token) return NextResponse.json({ error: 'Usuário ou senha incorretos.' }, { status: 401 });
-    const res = NextResponse.json({ ok: true });
-    res.cookies.set(SESSION_COOKIE, token, sessionCookieOptions);
+    const result = await login(username, password);
+    if ('error' in result) return NextResponse.json({ error: result.error }, { status: result.status });
+    const res = NextResponse.json({ ok: true, redirect: result.role === 'admin' ? '/admin' : '/' });
+    res.cookies.set(SESSION_COOKIE, result.token, sessionCookieOptions);
     return res;
   } catch (e) {
     console.error('Falha no login', e);

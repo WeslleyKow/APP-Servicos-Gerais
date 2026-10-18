@@ -10,7 +10,7 @@ const unauthorized = () => Response.json({ error: 'Sua sessão expirou. Entre no
 export async function GET() {
   try {
     const session = await getSession();
-    if (!session) return unauthorized();
+    if (!session || session.role !== 'client' || session.mustChangePassword) return unauthorized();
     const r = await query<{ data: Record<string, unknown>; version: number }>('select data, version from workspaces where account_id = $1', [session.accountId]);
     const row = r.rows[0];
     const data = row && Object.keys(row.data).length ? row.data : null;
@@ -25,7 +25,7 @@ export async function PUT(req: Request) {
   if (!sameOrigin(req)) return Response.json({ error: 'Origem inválida' }, { status: 403 });
   try {
     const session = await getSession();
-    if (!session) return unauthorized();
+    if (!session || session.role !== 'client' || session.mustChangePassword) return unauthorized();
     let body: { data?: Record<string, unknown>; version?: number };
     try {
       body = await req.json();
