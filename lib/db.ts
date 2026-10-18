@@ -5,10 +5,19 @@ import { hashPassword } from './password';
 type Globals = { __painelPool?: Pool; __painelReady?: Promise<void> };
 const g = globalThis as typeof globalThis & Globals;
 
+const ENV_CANDIDATES = ['DATABASE_URL', 'POSTGRES_URL', 'NEON_DATABASE_URL', 'DATABASE_URL_UNPOOLED', 'POSTGRES_PRISMA_URL'];
+
+/** Nome da variável de ambiente usada para conectar (a integração Neon pode usar um prefixo). */
+export function databaseEnvName(): string | null {
+  for (const k of ENV_CANDIDATES) if (process.env[k]) return k;
+  const prefixed = Object.keys(process.env).find((k) => /_(DATABASE_URL|POSTGRES_URL)$/.test(k) && process.env[k]);
+  return prefixed ?? null;
+}
+
 function connectionString() {
-  const url = process.env.DATABASE_URL || process.env.POSTGRES_URL;
-  if (!url) throw new Error('Banco de dados não configurado (DATABASE_URL ausente).');
-  return url;
+  const name = databaseEnvName();
+  if (!name) throw new Error('Banco de dados não configurado (DATABASE_URL ausente).');
+  return process.env[name]!;
 }
 
 export function pool(): Pool {
