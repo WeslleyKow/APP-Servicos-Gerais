@@ -28,10 +28,25 @@ async function mp<T>(path: string, init: RequestInit = {}): Promise<T> {
   });
   const body = await res.json().catch(() => ({}));
   if (!res.ok) {
-    console.error('Mercado Pago respondeu', res.status, JSON.stringify(body).slice(0, 500));
-    throw new PaymentError('O Mercado Pago não respondeu como esperado. Tente novamente em instantes.');
+    const detail = JSON.stringify({ status: res.status, message: body?.message, error: body?.error, cause: body?.cause }).slice(0, 800);
+    console.error('Mercado Pago respondeu', detail);
+    await query("insert into app_meta (key, value) values ('mp_last_error', $1) on conflict (key) do update set value = excluded.value", [new Date().toISOString() + ' ' + detail]).catch(() => {});
+    throw new PaymentError(friendlyMpError(res.status, JSON.stringify(body)));
   }
   return body as T;
+}
+
+function friendlyMpError(status: number, raw: string): string {
+  const t = raw.toLowerCase();
+  if (status === 401 || t.includes('invalid access token') || t.includes('unauthorized')) return 'Pagamento indisponível: a chave do Mercado Pago está inválida. Avise o suporte.';
+  if (t.includes('key enabled') || t.includes('financial identity') || t.includes('qr render')) return 'Pagamento indisponível: a conta do Mercado Pago ainda não tem chave Pix cadastrada. Avise o suporte.';
+  return 'O Mercado Pago não respondeu como esperado. Tente novamente em instantes.';
+}
+
+/** Último erro devolvido pelo Mercado Pago (para diagnóstico, sem dados sensíveis). */
+export async function lastMpError(): Promise<string | null> {
+  const r = await query<{ value: string }>("select value from app_meta where key = 'mp_last_error'");
+  return r.rows[0]?.value ?? null;
 }
 
 // ---------- Token para pagar a partir da tela de login (cliente bloqueado não tem sessão) ----------
@@ -96,7 +111,7 @@ export async function getOrCreateCharge(accountId: string, origin: string): Prom
       description: `Mensalidade Painel Geral - ${acc.business_name}`.slice(0, 120),
       payment_method_id: 'pix',
       external_reference: id,
-      date_of_expiration: expires.toISOString().replace('Z', '+00:00'),
+      date_of_expiration: new Date(expires.getTime() - 3 * 3600_000).toISOString().replace('Z', '-03:00'),
       payer: { email },
       ...(isPublic ? { notification_url: origin + '/api/pagamentos/webhook' } : {}),
     }),

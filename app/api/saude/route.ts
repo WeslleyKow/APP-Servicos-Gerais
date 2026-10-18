@@ -1,4 +1,5 @@
 import { databaseEnvName, ready } from '../../../lib/db';
+import { lastMpError, mpConfigured } from '../../../lib/payments';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -14,5 +15,12 @@ export async function GET() {
   } catch (e) {
     banco = 'erro: ' + ((e as Error).message || String(e)).replace(/postgres(ql)?:\/\/[^\s]+/gi, '[url]');
   }
-  return Response.json({ banco, variavelUsada: usando, variaveisEncontradas: envs }, { headers: { 'Cache-Control': 'no-store' } });
+  const token = process.env.MERCADOPAGO_ACCESS_TOKEN || '';
+  const mercadoPago = {
+    configurado: mpConfigured(),
+    tipoDaChave: !token ? 'ausente' : token.startsWith('APP_USR-') ? 'producao' : token.startsWith('TEST-') ? 'teste' : 'desconhecido',
+    segredoWebhook: !!process.env.MERCADOPAGO_WEBHOOK_SECRET,
+    ultimoErro: banco === 'ok' ? await lastMpError().catch(() => null) : null,
+  };
+  return Response.json({ banco, variavelUsada: usando, variaveisEncontradas: envs, mercadoPago }, { headers: { 'Cache-Control': 'no-store' } });
 }
